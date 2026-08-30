@@ -153,7 +153,7 @@ class SuiteBackend
       process_line = processes.find do |line|
         !first_party && line.include?("/#{plugin_id}/") && line.include?("omarchy-ui-runtime")
       end
-      process_fields = process_line ? process_line.strip.split(/\s+/, 6) : []
+      process_fields = process_line ? process_line.strip.split : []
       pid = process_fields[0]
       cpu = process_fields[2]
       memory = process_fields[3]
