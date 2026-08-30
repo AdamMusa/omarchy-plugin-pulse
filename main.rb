@@ -8,6 +8,12 @@
 class SuiteBackend
   SCORE_LABEL = "live plugins"
   STATUSES = ["active", "loaded", "changed", "attention"].freeze
+  KNOWN_OMARCHY_UI_RUNTIMES = {
+    "c5a5aec0078465a14af991e7de90a13fe4294d120032a2519e1979ec8b1d6d8f" => "Omarchy UI runtime v0.1.0",
+    "ccf010017a5f6d2ae06def4357e6bce2b344e6f245f195c5dbee92cd048017b0" => "Omarchy UI runtime v0.1.1",
+    "f75d3bccbd1e4424f71709dd91fab4c8611c52f9c217d8410ef4eb17ace53594" => "Omarchy UI runtime v0.1.3",
+    "721e023e7868a0f2a85c9b63250042a97d981943d9e60b8d98cf7c781a87de6e" => "Omarchy UI runtime v0.1.4"
+  }.freeze
   MAX_ITEMS = 128
   MAX_HISTORY = 256
   MAX_TEXT = 512
@@ -119,15 +125,19 @@ class SuiteBackend
       "ps", "-C", "omarchy-ui-runt", "-o",
       "pid=,ppid=,%cpu=,%mem=,etimes=,args=", "--sort=ppid"
     ]).lines
+    sockets = command_text(["ss", "-H", "-t", "-u", "-n", "-p"], timeout: 5).lines
     journal = command_text([
       "journalctl", "--user", "--since", "-30 minutes", "-n", "240",
       "--no-pager", "-o", "cat"
     ], timeout: 10).lines
-    source_extensions = %w[.rb .qml .js .sh .json .toml .yaml .yml .service .desktop]
+    source_extensions = %w[.rb .qml .js .sh .service .desktop]
     cue_sets = {
-      "command" => ["Command.run", "Process", "ShellCommand", "spawn", "exec", "system("],
-      "network" => ["https://", "http://", "curl", "wget", "WebSocket", "NetworkManager"],
-      "write" => ["File.write", "File.rename", "File.delete", "mkdir", "FileUtils.cp", "FileUtils.mv"]
+      "command" => ["Command.run", "ShellCommand", "Process", "spawn", "exec", "system("],
+      "network" => ["Net::HTTP", "TCPSocket", "UDPSocket", "WebSocket", "curl", "wget"],
+      "write" => ["File.write", "File.open", "File.rename", "File.delete", "mkdir", "FileUtils", " > "],
+      "secrets" => ["/.ssh", "~/.ssh", "/.gnupg", "~/.gnupg", "/.aws", "~/.aws", "keyring", "secret-tool"],
+      "privilege" => ["sudo", "pkexec", "doas", "polkit"],
+      "persistence" => ["systemctl --user enable", ".config/autostart", "crontab", "loginctl enable-linger"]
     }
 
     rows = enabled.filter_map do |plugin|
@@ -140,16 +150,36 @@ class SuiteBackend
         File.join(File.expand_path("~/.config/omarchy/plugins"), plugin_id)
       end
       files = root ? relative_files(root).first(512) : []
-      executable_count = files.count do |relative|
-        path = File.join(root, relative)
-        File.respond_to?(:executable?) ? File.executable?(path) : false
+      files = files.reject do |relative|
+        %w[Components/ Controls/ Fonts/ Theme/].any? { |prefix| relative.start_with?(prefix) }
       end
+      executable_paths = if root
+        command_text([
+          "find", root, "-xdev", "-type", "f", "-perm", "/111",
+          "-not", "-path", "*/.git/*", "-print"
+        ], timeout: 5).lines.first(64).map(&:strip).reject(&:empty?)
+      else
+        []
+      end
+      executable_count = executable_paths.length
 
-      cues = { "command" => 0, "network" => 0, "write" => 0 }
+      cues = {}
+      cue_sets.each_key { |kind| cues[kind] = 0 }
+      languages = []
+      source_endpoints = []
       files.each do |relative|
-        next unless source_extensions.include?(File.extname(relative).downcase)
+        extension = File.extname(relative).downcase
+        next unless source_extensions.include?(extension)
+        languages << "Ruby" if extension == ".rb"
+        languages << "QML" if extension == ".qml"
+        languages << "JavaScript" if extension == ".js"
+        languages << "Shell" if extension == ".sh"
         content = safe_read(File.join(root, relative), 131_072)
         next unless content
+        extract_http_urls(content, 8).each do |url|
+          endpoint = redact_http_url(url)
+          source_endpoints << endpoint unless endpoint.empty? || source_endpoints.include?(endpoint)
+        end
         cue_sets.each do |kind, markers|
           cues[kind] += 1 if markers.any? { |marker| content.include?(marker) }
         end
@@ -163,6 +193,41 @@ class SuiteBackend
       cpu = process_fields[2]
       memory = process_fields[3]
       age = process_fields[4]
+      child_lines = if pid && pid.to_i.positive?
+        command_text([
+          "ps", "--ppid", pid, "-o", "pid=,ppid=,%cpu=,%mem=,etimes=,args="
+        ], timeout: 5).lines.first(16)
+      else
+        []
+      end
+      process_ids = []
+      process_ids << pid if pid
+      child_lines.each do |line|
+        child_pid = line.strip.split.first
+        process_ids << child_pid if child_pid
+      end
+      connections = sockets.filter_map do |line|
+        socket_pid = socket_process_id(line)
+        next unless socket_pid && process_ids.include?(socket_pid)
+        fields = line.strip.split
+        next if fields.length < 6
+        {
+          "protocol" => clean(fields[0], 12),
+          "state" => clean(fields[1], 20),
+          "local" => clean(fields[4], 120),
+          "remote" => clean(fields[5], 120),
+          "pid" => socket_pid
+        }
+      end.first(8)
+      child_lines.each do |line|
+        extract_http_urls(line, 4).each do |url|
+          endpoint = redact_http_url(url)
+          source_endpoints << endpoint unless endpoint.empty? || source_endpoints.include?(endpoint)
+        end
+      end
+      source_endpoints = source_endpoints.first(8)
+      live_sockets = connections.length
+      http_calls = http_audit_records(plugin_id)
 
       evidence = journal.select { |line| line.include?(plugin_id) }
       reloads = evidence.count { |line| line.downcase.include?("reload") }
@@ -172,16 +237,92 @@ class SuiteBackend
       end
 
       commit = ""
+      origin = ""
       changed = false
       if root && File.directory?(File.join(root, ".git"))
         commit = clean(command_text(["git", "-C", root, "rev-parse", "--short=10", "HEAD"]), 20).strip
         changed = !command_text([
           "git", "-C", root, "status", "--porcelain", "--untracked-files=no"
         ]).strip.empty?
+        git_config = safe_read(File.join(root, ".git", "config"), 16_384).to_s
+        origin_line = git_config.lines.find { |line| line.strip.start_with?("url =") }
+        origin = clean(origin_line.to_s.sub("url =", "").strip, 120)
+      end
+
+      manifest = root ? parse_json(safe_read(File.join(root, "manifest.json"))) : nil
+      manifest = {} unless manifest.is_a?(Hash)
+      runtime_path = root ? File.join(root, "omarchy-ui-runtime") : ""
+      checksum_path = root ? File.join(root, "omarchy-ui-runtime.sha256") : ""
+      expected_sha = safe_read(checksum_path, 256).to_s.split.first.to_s
+      actual_sha = if !runtime_path.empty? && File.file?(runtime_path)
+        command_text(["sha256sum", runtime_path], timeout: 8).split.first.to_s
+      else
+        ""
+      end
+      checksum_matches = expected_sha.length == 64 && actual_sha == expected_sha
+      known_runtime = KNOWN_OMARCHY_UI_RUNTIMES[actual_sha]
+      runtime_known = !known_runtime.nil?
+      other_executables = executable_paths.reject { |path| path == runtime_path }
+      checksum_mismatch = expected_sha.length == 64 && !actual_sha.empty? && actual_sha != expected_sha
+      omarchy_ui = files.include?("main.rb") && (runtime_known || files.include?("runtime-provenance.json"))
+      framework = if omarchy_ui
+        "Omarchy UI · Ruby + Zui"
+      elsif languages.empty?
+        "No readable source"
+      else
+        languages.uniq.first(3).join(" + ")
+      end
+      trust = if first_party
+        "official"
+      elsif runtime_known && checksum_matches && other_executables.empty?
+        "verified runtime"
+      elsif executable_count.zero?
+        "source visible"
+      else
+        "executable review"
+      end
+
+      security_level, security_finding = if first_party
+        finding = if executable_count.zero?
+          "Official Omarchy plugin · no standalone executable"
+        else
+          "Official Omarchy plugin · #{executable_count} packaged executable file#{executable_count == 1 ? "" : "s"}"
+        end
+        ["official", finding]
+      elsif checksum_mismatch
+        ["danger", "Runtime checksum mismatch · executable file changed"]
+      elsif runtime_known && checksum_matches && other_executables.empty?
+        ["verified", "Known #{known_runtime} · executable checksum verified"]
+      elsif runtime_known && checksum_matches
+        count = other_executables.length
+        ["review", "Known framework runtime + #{count} other executable file#{count == 1 ? "" : "s"} · review"]
+      elsif executable_count.positive?
+        suffix = checksum_matches ? "plugin checksum matches, but executable is not recognized" : "review before trusting"
+        ["review", "#{executable_count} executable file#{executable_count == 1 ? "" : "s"} detected · #{suffix}"]
+      else
+        ["clear", "No standalone executable file detected"]
+      end
+
+      capabilities = []
+      capabilities << "runs local commands" if cues["command"].positive?
+      capabilities << "can make network requests" if cues["network"].positive?
+      capabilities << "writes local files" if cues["write"].positive?
+      capabilities << "references credential paths" if cues["secrets"].positive?
+      capabilities << "requests elevated access" if cues["privilege"].positive?
+      capabilities << "can add persistence" if cues["persistence"].positive?
+      capabilities << "no high-impact source cues" if capabilities.empty?
+
+      sensitive_source = []
+      sensitive_source << "credential paths" if cues["secrets"].positive?
+      sensitive_source << "elevated access" if cues["privilege"].positive?
+      sensitive_source << "persistence" if cues["persistence"].positive?
+      if !first_party && !sensitive_source.empty?
+        security_level = "review" unless security_level == "danger"
+        security_finding = "#{security_finding} · source references #{sensitive_source.join(" + ")}"
       end
 
       service_kind = Array(plugin["kinds"]).include?("service")
-      status = if errors.positive? || (!first_party && service_kind && !process_line)
+      status = if %w[danger review].include?(security_level) || errors.positive? || (!first_party && service_kind && !process_line)
         "attention"
       elsif changed
         "changed"
@@ -192,20 +333,40 @@ class SuiteBackend
       end
       kinds = Array(plugin["kinds"]).join(" · ")
       detail = if process_line
-        "Dedicated runtime · PID #{pid} · CPU #{cpu}% · MEM #{memory}% · age #{age}s"
+        "#{process_ids.length} live process#{process_ids.length == 1 ? "" : "es"} · PID #{pid} · CPU #{cpu}% · MEM #{memory}% · age #{age}s"
       else
         "Shared Omarchy shell · #{kinds}"
       end
-      meta = "#{errors} errors · #{reloads} reloads · #{executable_count} executables · " \
-        "#{cues["command"]} command cues · #{cues["network"]} network cues · #{cues["write"]} write cues"
-      meta += " · commit #{commit}" unless commit.empty?
-      item(plugin["name"] || plugin_id, detail, status, meta)
+      meta = capabilities.join(" · ")
+      record = item(plugin["name"] || plugin_id, detail, status, meta)
+      record["evidence"] = {
+        "plugin_id" => plugin_id,
+        "trust" => trust,
+        "security_level" => security_level,
+        "security_finding" => security_finding,
+        "framework" => framework,
+        "live_sockets" => live_sockets,
+        "connections" => connections,
+        "source_endpoints" => source_endpoints,
+        "http_calls" => http_calls,
+        "processes" => process_ids.length,
+        "errors" => errors,
+        "reloads" => reloads,
+        "executables" => executable_count,
+        "origin" => origin.empty? ? (first_party ? "packaged by Omarchy" : "origin unavailable") : origin,
+        "commit" => commit,
+        "version" => clean(manifest["version"], 40),
+        "author" => clean(manifest["author"], 80),
+        "capabilities" => capabilities.join(" · "),
+        "cue_total" => cues.values.inject(0) { |sum, value| sum + value }
+      }
+      record
     end
 
     attention = rows.count { |record| record["status"] == "attention" }
     active = rows.count { |record| record["status"] == "active" }
     @score = rows.length
-    @summary = attention.positive? ? "#{attention} need review" : "#{active} dedicated · quiet"
+    @summary = attention.positive? ? "#{attention} need review · #{active} live" : "#{active} live · no flags"
     rows.sort_by do |record|
       rank = { "attention" => 0, "changed" => 1, "active" => 2, "loaded" => 3 }
       [rank.fetch(record["status"], 4), record["title"].downcase]
@@ -255,6 +416,91 @@ class SuiteBackend
     end
   rescue SystemCallError
     nil
+  end
+
+  def redact_http_url(value)
+    url = clean(value, 300)
+    query_index = url.index("?")
+    fragment_index = url.index("#")
+    ending = [query_index, fragment_index].compact.min
+    url = url.byteslice(0, ending).to_s if ending
+    scheme, remainder = url.split("://")
+    return "" unless %w[http https].include?(scheme) && remainder
+    parts = remainder.split("/")
+    authority = parts.shift
+    path = parts.join("/")
+    authority = authority.split("@").last.to_s
+    clean("#{scheme}://#{authority}#{path.empty? ? "" : "/#{path}"}", 180)
+  end
+
+  def extract_http_urls(text, limit)
+    value = text.to_s
+    results = []
+    position = 0
+    while position < value.bytesize && results.length < limit
+      plain = value.index("http://", position)
+      secure = value.index("https://", position)
+      starts = [plain, secure].compact
+      break if starts.empty?
+      start = starts.min
+      finish = start
+      while finish < value.bytesize
+        byte = value.getbyte(finish)
+        break if byte <= 32 || [34, 39, 40, 41, 44, 59, 60, 62, 91, 93, 123, 125].include?(byte)
+        finish += 1
+      end
+      results << value.byteslice(start, finish - start).to_s
+      position = [finish + 1, start + 1].max
+    end
+    results
+  end
+
+  def socket_process_id(line)
+    marker = line.to_s.index("pid=")
+    return nil unless marker
+    position = marker + 4
+    number = 0
+    found = false
+    while position < line.bytesize
+      byte = line.getbyte(position)
+      break unless byte >= 48 && byte <= 57
+      number = (number * 10) + (byte - 48)
+      found = true
+      position += 1
+    end
+    found ? number.to_s : nil
+  end
+
+  def http_audit_records(plugin_id)
+    identifier = plugin_id.to_s
+    return [] if identifier.empty? || identifier.bytesize > 120
+    identifier.each_byte do |byte|
+      allowed = (byte >= 48 && byte <= 57) || (byte >= 65 && byte <= 90) ||
+        (byte >= 97 && byte <= 122) || [45, 46, 58, 95].include?(byte)
+      return [] unless allowed
+    end
+    path = File.join(File.expand_path("~/.local/state/omarchy-ui-audit"), "#{identifier}.jsonl")
+    return [] unless File.file?(path) && !File.symlink?(path)
+    body = safe_read(path, 131_072)
+    return [] unless body
+    body.lines.last(8).filter_map do |line|
+      event = parse_json(line.strip)
+      next unless event.is_a?(Hash) && event["type"] == "http"
+      url = redact_http_url(event["url"])
+      next if url.empty?
+      status = event["http_status"].to_i
+      {
+        "method" => clean(event["method"].to_s.upcase, 12),
+        "url" => url,
+        "http_status" => status.between?(100, 599) ? status : 0,
+        "exit_status" => event["exit_status"].to_i,
+        "duration_ms" => [[event["duration_ms"].to_i, 0].max, 3_600_000].min,
+        "response_bytes" => [[event["response_bytes"].to_i, 0].max, OUTPUT_LIMIT].min,
+        "observed_at" => event["observed_at"].to_i
+      }
+    end
+  rescue SystemCallError
+    []
   end
 
   def relative_files(root)
@@ -379,6 +625,8 @@ OmarchyUI.plugin do
   state :primary, ""
   state :secondary, ""
   state :compose, false
+  state :page, 0
+  state :selected_plugin, ""
 
   refresh = proc do
     state.snapshot = backend.refresh
@@ -390,7 +638,7 @@ OmarchyUI.plugin do
     value = status.to_s.downcase
     danger = false
     healthy = false
-    %w[broken critical missing mismatch drift inactive slow tight hotspot invalid attention].each do |token|
+    %w[broken critical missing mismatch drift inactive slow tight risk invalid attention].each do |token|
       danger = true if value.include?(token)
     end
     %w[ready valid verified finished aligned unique internal familiar steady covered available detected normal active loaded].each do |token|
@@ -409,7 +657,7 @@ OmarchyUI.plugin do
     value = status.to_s.downcase
     danger = false
     healthy = false
-    %w[broken critical missing mismatch drift inactive slow tight hotspot invalid attention].each do |token|
+    %w[broken critical missing mismatch drift inactive slow tight risk invalid attention].each do |token|
       danger = true if value.include?(token)
     end
     %w[ready valid verified finished aligned unique internal familiar steady covered available detected normal active loaded].each do |token|
@@ -462,36 +710,117 @@ OmarchyUI.plugin do
         end
 
         separator
-        attention = entries.count { |entry| entry.fetch("status", "") == "attention" }
-            changed = entries.count { |entry| entry.fetch("status", "") == "changed" }
+        selected_entry = entries.find { |entry| entry.fetch("id", "") == state.selected_plugin }
+            if selected_entry
+              evidence = selected_entry.fetch("evidence", {})
+              connections = Array(evidence.fetch("connections", []))
+              endpoints = Array(evidence.fetch("source_endpoints", []))
+              http_calls = Array(evidence.fetch("http_calls", []))
+
+              row spacing: 10 do
+                button "Back", icon: :arrow_left do
+                  state.selected_plugin = ""
+                end
+                column spacing: 2 do
+                  text selected_entry.fetch("title"), style: :heading, width: 390
+                  text evidence.fetch("plugin_id", ""), style: :caption, width: 390
+                end
+                text evidence.fetch("trust", "unknown").upcase, style: :caption, color: status_color.call(selected_entry.fetch("status", ""))
+              end
+
+              card padding: 14, spacing: 5, accent: evidence.fetch("security_level", "") == "danger" ? "#ff6b78" : (evidence.fetch("security_level", "") == "review" ? "#f0bd6a" : "#73e6cf") do
+                section_header "Security finding"
+                text evidence.fetch("security_finding", "Security finding unavailable"), width: 570, wrap: true
+                text evidence.fetch("framework", "Unknown framework"), style: :caption, color: "#73e6cf", width: 570, wrap: true
+                text selected_entry.fetch("meta", ""), style: :caption, width: 570, wrap: true
+              end
+
+              section_header "Process & execution"
+              text selected_entry.fetch("detail", ""), width: 590, wrap: true
+              text "#{evidence.fetch("errors", 0)} errors · #{evidence.fetch("reloads", 0)} reloads · #{evidence.fetch("executables", 0)} executable files", style: :caption, color: "#9ca8b2", width: 590, wrap: true
+
+              separator
+              section_header "Live network connections"
+              if connections.empty?
+                text "No live socket is attributable to this plugin right now.", style: :caption, color: "#9ca8b2", width: 590, wrap: true
+              else
+                connections.each do |connection|
+                  card padding: 10, spacing: 2 do
+                    text "#{connection.fetch("protocol", "?").upcase} · #{connection.fetch("state", "unknown")} · PID #{connection.fetch("pid", "?")}", color: "#73e6cf", width: 570
+                    text "#{connection.fetch("local", "?")} → #{connection.fetch("remote", "?")}", style: :caption, width: 570, wrap: true
+                  end
+                end
+              end
+
+              section_header "HTTP calls & responses"
+              if http_calls.empty?
+                text "No framework HTTP response was recorded. HTTPS content stays encrypted; OS monitoring can only show its connection above.", style: :caption, color: "#9ca8b2", width: 590, wrap: true
+              else
+                http_calls.reverse_each do |call|
+                  http_status = call.fetch("http_status", 0).to_i
+                  response = http_status.positive? ? "HTTP #{http_status}" : "process exit #{call.fetch("exit_status", 0)}"
+                  card padding: 10, spacing: 2 do
+                    text "#{call.fetch("method", "GET")} · #{response}", color: http_status >= 400 || call.fetch("exit_status", 0).to_i != 0 ? "#ff6b78" : "#73e6cf", width: 570
+                    text call.fetch("url", ""), style: :caption, width: 570, wrap: true
+                    text "#{call.fetch("response_bytes", 0)} response bytes · #{call.fetch("duration_ms", 0)} ms", style: :caption, color: "#9ca8b2"
+                  end
+                end
+              end
+
+              section_header "HTTP endpoints found in source"
+              if endpoints.empty?
+                text "No literal HTTP endpoint was found in readable plugin source.", style: :caption, color: "#9ca8b2", width: 590, wrap: true
+              else
+                endpoints.each do |endpoint|
+                  text endpoint, style: :caption, width: 590, wrap: true
+                end
+              end
+            else
+            attention = entries.count { |entry| entry.fetch("status", "") == "attention" }
             dedicated = entries.count { |entry| entry.fetch("status", "") == "active" }
+            live_sockets = entries.inject(0) do |sum, entry|
+              evidence = entry.fetch("evidence", {})
+              sum + evidence.fetch("live_sockets", 0).to_i
+            end
+            page_size = 5
+            page_count = [(entries.length.to_f / page_size).ceil, 1].max
+            page = state.page.to_i % page_count
+            visible_entries = entries.drop(page * page_size).first(page_size)
             row spacing: 20 do
               column spacing: 2 do
-                text "Runtime map", size: 34, bold: true, color: "#73e6cf"
-                text "Evidence from the live shell, process table, journal, and installed source.", style: :caption, width: 350, wrap: true
+                text "Runtime evidence", size: 34, bold: true, color: "#73e6cf"
+                text "Live processes plus bounded source, journal, provenance, and socket signals.", style: :caption, width: 350, wrap: true
               end
               column spacing: 0 do
                 text entries.length.to_s.rjust(2, "0"), size: 42, bold: true
-                text "enabled plugins", style: :caption
+                text "plugins monitored", style: :caption
               end
             end
             row spacing: 10 do
               card padding: 12, spacing: 2, accent: "#73e6cf" do
                 text dedicated.to_s, size: 28, bold: true, color: "#73e6cf"
-                text "dedicated runtimes", style: :caption
+                text "live runtimes", style: :caption
               end
               card padding: 12, spacing: 2 do
-                text changed.to_s, size: 28, bold: true, color: "#efc66b"
-                text "source changes", style: :caption
+                text live_sockets.to_s, size: 28, bold: true, color: live_sockets.zero? ? "#9ca8b2" : "#73e6cf"
+                text "live sockets", style: :caption
               end
               card padding: 12, spacing: 2 do
                 text attention.to_s, size: 28, bold: true, color: attention.zero? ? "#73e6cf" : "#ff6b78"
-                text "need attention", style: :caption
+                text "review flags", style: :caption
               end
             end
-            text "Signals are observations, not a malware-free guarantee.", style: :caption, color: "#9ca8b2"
+            text "Green: known framework executable. Amber: unknown executable. Red: changed executable. Live network and process activity appears on each plugin.", style: :caption, color: "#9ca8b2", width: 590, wrap: true
             separator
-            section_header "Enabled plugin activity"
+            row spacing: 10 do
+              section_header "Plugin evidence · page #{page + 1}/#{page_count}"
+              button "Previous", icon: :arrow_left do
+                state.page = page.zero? ? page_count - 1 : page - 1
+              end
+              button "Next", icon: :arrow_right, accent: "#73e6cf" do
+                state.page = (page + 1) % page_count
+              end
+            end
             if entries.empty?
               column spacing: 8 do
                         icon :eye, size: 34, color: "#73e6cf"
@@ -499,21 +828,29 @@ OmarchyUI.plugin do
                         text "No enabled plugins were returned by Omarchy's registry.", style: :caption, wrap: true, width: 560
                       end
             else
-              entries.first(18).each_with_index do |entry, index|
+              visible_entries.each_with_index do |entry, index|
+                evidence = entry.fetch("evidence", {})
                 row spacing: 10 do
-                  rectangle width: 3, height: 54, radius: 2, color: status_color.call(entry.fetch("status", ""))
+                  rectangle width: 3, height: 104, radius: 2, color: status_color.call(entry.fetch("status", ""))
                   icon status_icon.call(entry.fetch("status", "")), size: 16, color: status_color.call(entry.fetch("status", ""))
                   column spacing: 2 do
                     row spacing: 8 do
-                      text entry.fetch("title"), width: 330
-                      text entry.fetch("status", "").upcase, style: :caption, color: status_color.call(entry.fetch("status", ""))
+                      text entry.fetch("title"), width: 260
+                      text evidence.fetch("trust", "unknown").upcase, style: :caption, color: status_color.call(entry.fetch("status", ""))
                     end
                     text entry.fetch("detail", ""), style: :caption, width: 500, wrap: true
-                    text entry.fetch("meta", ""), style: :caption, color: "#9ca8b2", width: 500, wrap: true
+                    text evidence.fetch("framework", "Unknown framework"), style: :caption, color: "#73e6cf", width: 500, wrap: true
+                    text evidence.fetch("security_finding", "Security finding unavailable"), style: :caption, color: evidence.fetch("security_level", "") == "danger" ? "#ff6b78" : (evidence.fetch("security_level", "") == "review" ? "#f0bd6a" : "#73e6cf"), width: 500, wrap: true
+                    text entry.fetch("meta", ""), style: :caption, width: 500, wrap: true
+                    text "#{evidence.fetch("errors", 0)} errors · #{evidence.fetch("reloads", 0)} reloads · #{evidence.fetch("executables", 0)} executables · #{evidence.fetch("live_sockets", 0)} live sockets", style: :caption, color: "#9ca8b2", width: 500, wrap: true
+                  end
+                  button "Details", icon: :circle_info do
+                    state.selected_plugin = entry.fetch("id", "")
                   end
                 end
-                separator unless index == [entries.length, 18].min - 1
+                separator unless index == visible_entries.length - 1
               end
+            end
             end
       end
     end

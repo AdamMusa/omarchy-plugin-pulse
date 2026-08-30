@@ -25,7 +25,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir "$RUNNER_TEMP/runtime-release"
-          gh release download runtime-v0.1.1 --repo AdamMusa/omarchy-ui \
+          gh release download runtime-v0.1.4 --repo AdamMusa/omarchy-ui \
             --pattern omarchy-ui-runtime --dir "$RUNNER_TEMP/runtime-release"
           cmp omarchy-ui-runtime "$RUNNER_TEMP/runtime-release/omarchy-ui-runtime"
       - name: Check Ruby and backend behavior

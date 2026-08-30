@@ -5,7 +5,7 @@
 
 **See which plugins are actually loaded, what they launch, and where the shell is struggling.**
 
-Plugin Pulse builds a local runtime map from Omarchy's plugin registry, the live process table, recent user journal entries, installed source trees, and Git metadata. It shows dedicated runtimes, shared-shell plugins, executable payloads, command and network cues, reload activity, and attributable errors without executing inspected plugin code.
+Plugin Pulse builds a local runtime map from Omarchy's plugin registry, the live process table, recent user journal entries, installed source trees, and Git metadata. It shows dedicated runtimes, shared-shell plugins, executable payloads, command and network cues, reload activity, and attributable errors without executing inspected plugin code. Known Omarchy UI release hashes are distinguished from unknown executables and checksum mismatches.
 
 ![Plugin Pulse preview](preview.png)
 
@@ -33,6 +33,8 @@ Add **Plugin Pulse** to the Omarchy bar and click its widget to open the panel. 
 - State, command output, item counts, history, and rendered strings are bounded.
 - State writes use an owner-only temporary file and atomic rename.
 - System probes are read-only and invoke fixed argument arrays without a shell.
+- Executable findings distinguish exact known Omarchy UI release hashes, additional or unknown executables, and declared-checksum mismatches. A checksum match supplied by an unknown plugin is not treated as independent trust.
+- Framework HTTP audit records contain only method, redacted URL, process result, response size, and duration. Credentials, query strings, headers, and response bodies are never stored.
 - No telemetry, analytics, remote account, package installation, or privileged command is used.
 - The plugin never overwrites Omarchy, Hyprland, or application configuration.
 
