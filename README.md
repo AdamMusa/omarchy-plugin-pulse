@@ -21,6 +21,9 @@ The concept was checked against the complete Omarchy Plugin Marketplace catalog 
 omarchy plugin add https://github.com/AdamMusa/omarchy-plugin-pulse.git --enable
 ```
 
+The repository is self-contained. Omarchy UI asks Zui 0.0.10 to tree-shake the QML renderer at
+bundle time, so users do not need Ruby or framework gems on the destination.
+
 Review third-party plugin code before enabling it. Omarchy community plugins run with your user account.
 
 ## Use
@@ -62,7 +65,10 @@ rm -r ~/.local/state/omarchy-plugin-pulse
 
 ## Development
 
-The user interface is written entirely in Ruby with [Omarchy UI](https://github.com/AdamMusa/omarchy-ui). Generated QML bridge files and the attested mruby runtime are distribution artifacts.
+The user interface is written entirely in Ruby with [Omarchy UI](https://github.com/AdamMusa/omarchy-ui).
+The repository contains the thin Omarchy QML bridge, attested mruby runtime, and Zui's generated
+QML runtime reduced to the components referenced by this plugin. `zui-tree-shake.json` records
+the selected component set and byte reduction.
 
 ```bash
 sha256sum --check omarchy-ui-runtime.sha256

@@ -1,0 +1,21 @@
+{
+  "zui_version": "0.0.10",
+  "components": [
+    "action_button",
+    "button",
+    "card",
+    "column",
+    "container",
+    "icon",
+    "rectangle",
+    "row",
+    "scroll",
+    "section_header",
+    "separator",
+    "text"
+  ],
+  "before_bytes": 1549503,
+  "after_bytes": 914666,
+  "saved_bytes": 634837,
+  "warnings": []
+}
