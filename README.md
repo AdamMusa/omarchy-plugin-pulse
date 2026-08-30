@@ -56,7 +56,7 @@ rm -r ~/.local/state/omarchy-plugin-pulse
 
 - Plugin ID: `izeesoft.plugin-pulse`
 - Category: Developer Tools
-- Tags: quickshell, system, bar
+- Tags: security, system, quickshell
 - Kinds: service, bar widget, panel
 - Target: Omarchy Quattro on x86-64 Linux
 
