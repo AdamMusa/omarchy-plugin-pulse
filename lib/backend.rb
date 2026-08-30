@@ -111,7 +111,8 @@ class SuiteBackend
     end
 
     processes = command_text([
-      "ps", "-eo", "pid=,ppid=,%cpu=,%mem=,etimes=,args=", "--sort=ppid"
+      "ps", "-C", "omarchy-ui-runt", "-o",
+      "pid=,ppid=,%cpu=,%mem=,etimes=,args=", "--sort=ppid"
     ]).lines
     journal = command_text([
       "journalctl", "--user", "--since", "-30 minutes", "-n", "240",
