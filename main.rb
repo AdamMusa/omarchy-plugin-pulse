@@ -735,7 +735,7 @@ OmarchyUI.plugin do
                 text selected_entry.fetch("meta", ""), style: :caption, width: 570, wrap: true
               end
 
-              section_header "Process & execution"
+              section_header "Process and execution"
               text selected_entry.fetch("detail", ""), width: 590, wrap: true
               text "#{evidence.fetch("errors", 0)} errors · #{evidence.fetch("reloads", 0)} reloads · #{evidence.fetch("executables", 0)} executable files", style: :caption, color: "#9ca8b2", width: 590, wrap: true
 
@@ -752,7 +752,7 @@ OmarchyUI.plugin do
                 end
               end
 
-              section_header "HTTP calls & responses"
+              section_header "HTTP calls and responses"
               if http_calls.empty?
                 text "No framework HTTP response was recorded. HTTPS content stays encrypted; OS monitoring can only show its connection above.", style: :caption, color: "#9ca8b2", width: 590, wrap: true
               else
