@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "izeesoft.plugin-pulse",
+  "name": "Plugin Pulse",
+  "version": "0.1.0",
+  "author": "Adam Moussa Ali",
+  "license": "MIT",
+  "description": "Local runtime observability for enabled Omarchy plugins, their processes, reloads, source cues, and shell errors.",
+  "kinds": [
+    "service",
+    "bar-widget",
+    "panel"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml",
+    "panel": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Plugin Pulse",
+    "description": "See which plugins are actually loaded, what they launch, and where the shell is struggling.",
+    "category": "Developer Tools",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
