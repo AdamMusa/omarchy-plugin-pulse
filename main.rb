@@ -685,173 +685,190 @@ OmarchyUI.plugin do
   end
 
   bar_widget do
-    row spacing: 7 do
-      icon :eye, color: "#73e6cf"
-      text { state.snapshot.fetch("summary") }
+    row spacing: 6 do
+      icon :eye, size: 14, color: "#73e6cf"
+      text "PULSE", style: :caption, color: "#73e6cf"
+      text(style: :caption) { state.snapshot.fetch("summary") }
     end
     on_click { open_panel :plugin_pulse }
   end
 
   panel :plugin_pulse do
-    scroll width: 660, height: 760 do
+    scroll width: 660, height: 780 do
       dynamic id: :scene, spacing: 16 do
         entries = state.snapshot.fetch("items")
-        history = state.snapshot.fetch("history")
-
-        row spacing: 12 do
-          icon :eye, size: 30, color: "#73e6cf"
-          column spacing: 2 do
-            text "Plugin Pulse", style: :heading, width: 500
-            text state.snapshot.fetch("summary"), style: :caption, width: 500
-          end
-          action_button :refresh, tooltip: "Refresh", foreground: "#73e6cf" do
-            async(&refresh)
-          end
-        end
-
-        separator
         selected_entry = entries.find { |entry| entry.fetch("id", "") == state.selected_plugin }
-            if selected_entry
-              evidence = selected_entry.fetch("evidence", {})
-              connections = Array(evidence.fetch("connections", []))
-              endpoints = Array(evidence.fetch("source_endpoints", []))
-              http_calls = Array(evidence.fetch("http_calls", []))
 
-              row spacing: 10 do
-                button "Back", icon: :arrow_left do
-                  state.selected_plugin = ""
-                end
-                column spacing: 2 do
-                  text selected_entry.fetch("title"), style: :heading, width: 390
-                  text evidence.fetch("plugin_id", ""), style: :caption, width: 390
-                end
-                text evidence.fetch("trust", "unknown").upcase, style: :caption, color: status_color.call(selected_entry.fetch("status", ""))
-              end
+        if selected_entry
+          evidence = selected_entry.fetch("evidence", {})
+          connections = Array(evidence.fetch("connections", []))
+          endpoints = Array(evidence.fetch("source_endpoints", []))
+          http_calls = Array(evidence.fetch("http_calls", []))
+          signal_color = evidence.fetch("security_level", "") == "danger" ? "#ff8b8b" :
+            (evidence.fetch("security_level", "") == "review" ? "#f0bd6a" : "#73e6cf")
 
-              card padding: 14, spacing: 5, accent: evidence.fetch("security_level", "") == "danger" ? "#ff6b78" : (evidence.fetch("security_level", "") == "review" ? "#f0bd6a" : "#73e6cf") do
-                section_header "Security finding"
-                text evidence.fetch("security_finding", "Security finding unavailable"), width: 570, wrap: true
-                text evidence.fetch("framework", "Unknown framework"), style: :caption, color: "#73e6cf", width: 570, wrap: true
-                text selected_entry.fetch("meta", ""), style: :caption, width: 570, wrap: true
-              end
-
-              section_header "Process and execution"
-              text selected_entry.fetch("detail", ""), width: 590, wrap: true
-              text "#{evidence.fetch("errors", 0)} errors · #{evidence.fetch("reloads", 0)} reloads · #{evidence.fetch("executables", 0)} executable files", style: :caption, color: "#9ca8b2", width: 590, wrap: true
-
-              separator
-              section_header "Live network connections"
-              if connections.empty?
-                text "No live socket is attributable to this plugin right now.", style: :caption, color: "#9ca8b2", width: 590, wrap: true
-              else
-                connections.each do |connection|
-                  card padding: 10, spacing: 2 do
-                    text "#{connection.fetch("protocol", "?").upcase} · #{connection.fetch("state", "unknown")} · PID #{connection.fetch("pid", "?")}", color: "#73e6cf", width: 570
-                    text "#{connection.fetch("local", "?")} → #{connection.fetch("remote", "?")}", style: :caption, width: 570, wrap: true
-                  end
-                end
-              end
-
-              section_header "HTTP calls and responses"
-              if http_calls.empty?
-                text "No framework HTTP response was recorded. HTTPS content stays encrypted; OS monitoring can only show its connection above.", style: :caption, color: "#9ca8b2", width: 590, wrap: true
-              else
-                http_calls.reverse_each do |call|
-                  http_status = call.fetch("http_status", 0).to_i
-                  response = http_status.positive? ? "HTTP #{http_status}" : "process exit #{call.fetch("exit_status", 0)}"
-                  card padding: 10, spacing: 2 do
-                    text "#{call.fetch("method", "GET")} · #{response}", color: http_status >= 400 || call.fetch("exit_status", 0).to_i != 0 ? "#ff6b78" : "#73e6cf", width: 570
-                    text call.fetch("url", ""), style: :caption, width: 570, wrap: true
-                    text "#{call.fetch("response_bytes", 0)} response bytes · #{call.fetch("duration_ms", 0)} ms", style: :caption, color: "#9ca8b2"
-                  end
-                end
-              end
-
-              section_header "HTTP endpoints found in source"
-              if endpoints.empty?
-                text "No literal HTTP endpoint was found in readable plugin source.", style: :caption, color: "#9ca8b2", width: 590, wrap: true
-              else
-                endpoints.each do |endpoint|
-                  text endpoint, style: :caption, width: 590, wrap: true
-                end
-              end
-            else
-            attention = entries.count { |entry| entry.fetch("status", "") == "attention" }
-            dedicated = entries.count { |entry| entry.fetch("status", "") == "active" }
-            live_sockets = entries.inject(0) do |sum, entry|
-              evidence = entry.fetch("evidence", {})
-              sum + evidence.fetch("live_sockets", 0).to_i
+          row spacing: 10 do
+            button "Back", icon: :arrow_left do
+              state.selected_plugin = ""
             end
-            page_size = 5
-            page_count = [(entries.length.to_f / page_size).ceil, 1].max
-            page = state.page.to_i % page_count
-            visible_entries = entries.drop(page * page_size).first(page_size)
-            row spacing: 20 do
+            column spacing: 1 do
+              text selected_entry.fetch("title"), size: 27, bold: true, width: 390
+              text evidence.fetch("plugin_id", ""), style: :caption, width: 390
+            end
+            text evidence.fetch("trust", "unknown").upcase, style: :caption, color: signal_color
+          end
+          separator
+          text "SECURITY SIGNAL", size: 12, bold: true, color: signal_color
+          text "━━━━━━╲╱━━━━━━━━╲━━╱━━━━━━━━━━━━━━━━━━━━━━●", size: 17, color: signal_color
+          text evidence.fetch("security_finding", "Security finding unavailable"),
+               size: 18, bold: true, width: 590, wrap: true
+          text evidence.fetch("framework", "Unknown framework"), style: :caption,
+               color: "#73e6cf", width: 590, wrap: true
+          text selected_entry.fetch("meta", ""), style: :caption, color: "#829088", width: 590, wrap: true
+          row spacing: 34 do
+            column spacing: 0 do
+              text evidence.fetch("errors", 0).to_s.rjust(2, "0"), size: 28, bold: true,
+                   color: evidence.fetch("errors", 0).to_i.zero? ? "#73e6cf" : "#ff8b8b"
+              text "ERRORS", style: :caption
+            end
+            column spacing: 0 do
+              text evidence.fetch("reloads", 0).to_s.rjust(2, "0"), size: 28, bold: true
+              text "RELOADS", style: :caption
+            end
+            column spacing: 0 do
+              text evidence.fetch("executables", 0).to_s.rjust(2, "0"), size: 28, bold: true
+              text "EXECUTABLES", style: :caption
+            end
+            column spacing: 0 do
+              text evidence.fetch("live_sockets", 0).to_s.rjust(2, "0"), size: 28, bold: true
+              text "SOCKETS", style: :caption
+            end
+          end
+          text selected_entry.fetch("detail", ""), style: :caption, width: 590, wrap: true
+          separator
+          text "LIVE NETWORK", size: 12, bold: true, color: "#73e6cf"
+          if connections.empty?
+            text "○━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  no attributable socket",
+                 style: :caption, color: "#829088", width: 590, wrap: true
+          else
+            connections.each do |connection|
+              column spacing: 3 do
+                text "#{connection.fetch("protocol", "?").upcase}  PID #{connection.fetch("pid", "?")}  #{connection.fetch("state", "unknown").upcase}",
+                     style: :caption, color: "#73e6cf"
+                text "●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●", style: :caption, color: "#73e6cf"
+                text "#{connection.fetch("local", "?")}  →  #{connection.fetch("remote", "?")}",
+                     style: :caption, width: 590, wrap: true
+              end
+            end
+          end
+          separator
+          text "HTTP RESPONSES", size: 12, bold: true, color: "#73e6cf"
+          if http_calls.empty?
+            text "No framework HTTP response recorded; encrypted payloads remain private.",
+                 style: :caption, color: "#829088", width: 590, wrap: true
+          else
+            http_calls.reverse_each do |call|
+              http_status = call.fetch("http_status", 0).to_i
+              call_color = http_status >= 400 || call.fetch("exit_status", 0).to_i != 0 ? "#ff8b8b" : "#73e6cf"
+              response = http_status.positive? ? "HTTP #{http_status}" : "EXIT #{call.fetch("exit_status", 0)}"
               column spacing: 2 do
-                text "Runtime evidence", size: 34, bold: true, color: "#73e6cf"
-                text "Live processes plus bounded source, journal, provenance, and socket signals.", style: :caption, width: 350, wrap: true
-              end
-              column spacing: 0 do
-                text entries.length.to_s.rjust(2, "0"), size: 42, bold: true
-                text "plugins monitored", style: :caption
+                text "#{call.fetch("method", "GET")}  #{response}  ━━━━━━━━━━━━━━━━━━━●", color: call_color
+                text call.fetch("url", ""), style: :caption, width: 590, wrap: true
+                text "#{call.fetch("response_bytes", 0)} bytes · #{call.fetch("duration_ms", 0)} ms",
+                     style: :caption, color: "#829088"
               end
             end
-            row spacing: 10 do
-              card padding: 12, spacing: 2, accent: "#73e6cf" do
-                text dedicated.to_s, size: 28, bold: true, color: "#73e6cf"
-                text "live runtimes", style: :caption
-              end
-              card padding: 12, spacing: 2 do
-                text live_sockets.to_s, size: 28, bold: true, color: live_sockets.zero? ? "#9ca8b2" : "#73e6cf"
-                text "live sockets", style: :caption
-              end
-              card padding: 12, spacing: 2 do
-                text attention.to_s, size: 28, bold: true, color: attention.zero? ? "#73e6cf" : "#ff6b78"
-                text "review flags", style: :caption
-              end
-            end
-            text "Green: known framework executable. Amber: unknown executable. Red: changed executable. Live network and process activity appears on each plugin.", style: :caption, color: "#9ca8b2", width: 590, wrap: true
+          end
+          unless endpoints.empty?
             separator
-            row spacing: 10 do
-              section_header "Plugin evidence · page #{page + 1}/#{page_count}"
-              button "Previous", icon: :arrow_left do
-                state.page = page.zero? ? page_count - 1 : page - 1
-              end
-              button "Next", icon: :arrow_right, accent: "#73e6cf" do
-                state.page = (page + 1) % page_count
+            text "SOURCE ENDPOINTS", size: 12, bold: true, color: "#73e6cf"
+            endpoints.each { |endpoint| text endpoint, style: :caption, width: 590, wrap: true }
+          end
+        else
+          attention = entries.count { |entry| entry.fetch("status", "") == "attention" }
+          dedicated = entries.count { |entry| entry.fetch("status", "") == "active" }
+          live_sockets = entries.inject(0) do |sum, entry|
+            sum + entry.fetch("evidence", {}).fetch("live_sockets", 0).to_i
+          end
+          page_size = 5
+          page_count = [(entries.length.to_f / page_size).ceil, 1].max
+          page = state.page.to_i % page_count
+          visible_entries = entries.drop(page * page_size).first(page_size)
+
+          column spacing: 2 do
+            text "#{entries.length} plugin runtimes on the monitor", style: :caption, width: 610
+            row spacing: 9 do
+              text "Plugin", size: 30, bold: true
+              icon :eye, size: 22, color: "#73e6cf"
+              text "Pulse", size: 30, bold: true, width: 455
+              action_button :refresh, tooltip: "Sample runtime signals", foreground: "#73e6cf" do
+                async(&refresh)
               end
             end
-            if entries.empty?
-              column spacing: 8 do
-                        icon :eye, size: 34, color: "#73e6cf"
-                        text "Nothing to show yet", style: :heading
-                        text "No enabled plugins were returned by Omarchy's registry.", style: :caption, wrap: true, width: 560
-                      end
-            else
-              visible_entries.each_with_index do |entry, index|
-                evidence = entry.fetch("evidence", {})
+          end
+          separator
+          text "LIVE RUNTIME SIGNAL", size: 12, bold: true, color: "#73e6cf"
+          text "●━━━━━━━━╲╱━━━━━━╲━━╱━━━━━━━━╲╱━━━━━━━━━━━━━━●", size: 18, color: "#73e6cf"
+          row spacing: 42 do
+            column spacing: 0 do
+              text dedicated.to_s.rjust(2, "0"), size: 34, bold: true, color: "#73e6cf"
+              text "LIVE RUNTIMES", style: :caption
+            end
+            column spacing: 0 do
+              text live_sockets.to_s.rjust(2, "0"), size: 34, bold: true
+              text "SOCKETS", style: :caption
+            end
+            column spacing: 0 do
+              text attention.to_s.rjust(2, "0"), size: 34, bold: true,
+                   color: attention.zero? ? "#829088" : "#ff8b8b"
+              text "REVIEW FLAGS", style: :caption
+            end
+          end
+          separator
+          row spacing: 10 do
+            text "RUNTIME CHANNELS  ·  #{page + 1}/#{page_count}", size: 12, bold: true,
+                 color: "#73e6cf", width: 380
+            button "Previous", icon: :arrow_left do
+              state.page = page.zero? ? page_count - 1 : page - 1
+            end
+            button "Next", icon: :arrow_right, accent: "#73e6cf" do
+              state.page = (page + 1) % page_count
+            end
+          end
+
+          if entries.empty?
+            text "No enabled plugin runtimes were returned by Omarchy.",
+                 style: :caption, color: "#829088", width: 590, wrap: true
+          else
+            visible_entries.each_with_index do |entry, index|
+              evidence = entry.fetch("evidence", {})
+              pulse_color = status_color.call(entry.fetch("status", ""))
+              column spacing: 4 do
                 row spacing: 10 do
-                  rectangle width: 3, height: 104, radius: 2, color: status_color.call(entry.fetch("status", ""))
-                  icon status_icon.call(entry.fetch("status", "")), size: 16, color: status_color.call(entry.fetch("status", ""))
-                  column spacing: 2 do
-                    row spacing: 8 do
-                      text entry.fetch("title"), width: 260
-                      text evidence.fetch("trust", "unknown").upcase, style: :caption, color: status_color.call(entry.fetch("status", ""))
-                    end
-                    text entry.fetch("detail", ""), style: :caption, width: 500, wrap: true
-                    text evidence.fetch("framework", "Unknown framework"), style: :caption, color: "#73e6cf", width: 500, wrap: true
-                    text evidence.fetch("security_finding", "Security finding unavailable"), style: :caption, color: evidence.fetch("security_level", "") == "danger" ? "#ff6b78" : (evidence.fetch("security_level", "") == "review" ? "#f0bd6a" : "#73e6cf"), width: 500, wrap: true
-                    text entry.fetch("meta", ""), style: :caption, width: 500, wrap: true
-                    text "#{evidence.fetch("errors", 0)} errors · #{evidence.fetch("reloads", 0)} reloads · #{evidence.fetch("executables", 0)} executables · #{evidence.fetch("live_sockets", 0)} live sockets", style: :caption, color: "#9ca8b2", width: 500, wrap: true
+                  rectangle width: 4, height: 54, radius: 2, color: pulse_color
+                  text (page * page_size + index + 1).to_s.rjust(2, "0"),
+                       style: :caption, color: pulse_color, width: 24
+                  column spacing: 1 do
+                    text entry.fetch("title"), size: 16, bold: true, width: 360
+                    text evidence.fetch("framework", "Unknown framework"),
+                         style: :caption, color: "#73e6cf", width: 360, wrap: true
                   end
-                  button "Details", icon: :circle_info do
+                  text evidence.fetch("trust", "unknown").upcase,
+                       style: :caption, color: pulse_color, width: 100
+                  button "Trace", icon: :circle_info do
                     state.selected_plugin = entry.fetch("id", "")
                   end
                 end
-                separator unless index == visible_entries.length - 1
+                text "    ●━━━━━━╲╱━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●", style: :caption, color: pulse_color
+                text "    #{evidence.fetch("errors", 0)} errors · #{evidence.fetch("reloads", 0)} reloads · #{evidence.fetch("executables", 0)} executables · #{evidence.fetch("live_sockets", 0)} sockets",
+                     style: :caption, color: "#829088", width: 560, wrap: true
+                text "    #{evidence.fetch("security_finding", "Security finding unavailable")}",
+                     style: :caption, color: pulse_color, width: 560, wrap: true
               end
+              separator unless index == visible_entries.length - 1
             end
-            end
+          end
+        end
       end
     end
   end
