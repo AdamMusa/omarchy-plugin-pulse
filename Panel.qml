@@ -1,4 +1,4 @@
 import QtQuick
-import "OmarchyUI/Bundles/B6bd4bb02186cc0f33195" as Compiled
+import "OmarchyUI/Bundles/Bba59c6b96f4f5700ef46" as Compiled
 
 Compiled.Panel {}
