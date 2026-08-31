@@ -8,7 +8,6 @@
   "source_files": 44,
   "source_bytes": 918337,
   "entry_shims": [
-    "App.qml",
     "BarWidget.qml",
     "Panel.qml",
     "Service.qml"
