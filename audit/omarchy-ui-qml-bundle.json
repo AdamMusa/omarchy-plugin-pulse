@@ -1,0 +1,27 @@
+{
+  "format": "qt-aot-qml-module",
+  "format_version": 1,
+  "qt_version": "6.11.2",
+  "module_uri": "OmarchyUI.Bundles.Bba59c6b96f4f5700ef46",
+  "module_path": "OmarchyUI/Bundles/Bba59c6b96f4f5700ef46",
+  "source_fingerprint": "ba59c6b96f4f5700ef465691c5d960b50ec7e1cc173d4e03dd2f5bf0b7132f34",
+  "source_files": 44,
+  "source_bytes": 918337,
+  "entry_shims": [
+    "BarWidget.qml",
+    "Panel.qml",
+    "Service.qml"
+  ],
+  "artifacts": [
+    {
+      "path": "OmarchyUI/Bundles/Bba59c6b96f4f5700ef46/libomarchy_ui_bundle_bba59c6b96f4f5700ef46.so",
+      "sha256": "18e68215312d557ae697dcca3c0f627c80c13bae82c21b993c169c42bbfb538e",
+      "bytes": 3521328
+    },
+    {
+      "path": "OmarchyUI/Bundles/Bba59c6b96f4f5700ef46/libomarchy_ui_bundle_bba59c6b96f4f5700ef46plugin.so",
+      "sha256": "01993c7267416bd735d08b204218e7e5854cc1aa422291fbe066e560a6013be0",
+      "bytes": 24784
+    }
+  ]
+}
