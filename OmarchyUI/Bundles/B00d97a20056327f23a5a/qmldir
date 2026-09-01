@@ -1,16 +1,17 @@
-module OmarchyUI.Bundles.Bba59c6b96f4f5700ef46
-linktarget omarchy_ui_bundle_bba59c6b96f4f5700ef46plugin
-optional plugin omarchy_ui_bundle_bba59c6b96f4f5700ef46plugin
-classname OmarchyUI_Bundles_Bba59c6b96f4f5700ef46Plugin
-typeinfo omarchy_ui_bundle_bba59c6b96f4f5700ef46.qmltypes
-prefer :/qt/qml/OmarchyUI/Bundles/Bba59c6b96f4f5700ef46/
-App 1.0 App.qml
+module OmarchyUI.Bundles.B00d97a20056327f23a5a
+linktarget omarchy_ui_bundle_b00d97a20056327f23a5aplugin
+optional plugin omarchy_ui_bundle_b00d97a20056327f23a5aplugin
+classname OmarchyUI_Bundles_B00d97a20056327f23a5aPlugin
+typeinfo omarchy_ui_bundle_b00d97a20056327f23a5a.qmltypes
+prefer :/qt/qml/OmarchyUI/Bundles/B00d97a20056327f23a5a/
 BarWidget 1.0 BarWidget.qml
 ActionButton 1.0 Components/Builtins/ActionButton.qml
 Button 1.0 Components/Builtins/Button.qml
 Column 1.0 Components/Builtins/Column.qml
 Container 1.0 Components/Builtins/Container.qml
+DesktopStage 1.0 Components/Builtins/DesktopStage.qml
 Icon 1.0 Components/Builtins/Icon.qml
+Positioned 1.0 Components/Builtins/Positioned.qml
 Rectangle 1.0 Components/Builtins/Rectangle.qml
 Row 1.0 Components/Builtins/Row.qml
 Scroll 1.0 Components/Builtins/Scroll.qml
