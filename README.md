@@ -9,6 +9,13 @@ Plugin Pulse builds a local runtime map from Omarchy's plugin registry, the live
 
 ![Plugin Pulse preview](preview.png)
 
+## Built entirely in Ruby
+
+All application behavior, system integration, and UI declarations are authored in
+Ruby. There is no handwritten QML source. Omarchy UI compiles the Ruby-declared UI
+into `OmarchyUI/Bundles/` and emits the three tiny root QML loader shims required by
+the plugin manifest; those shims are generated packaging output.
+
 ## Why this is distinct
 
 Existing security scanners classify plugin source or gate updates. Plugin Pulse is an operations view: it correlates the currently enabled registry with live processes and recent shell behavior. It reports evidence and anomalies, never a malware-free verdict.
@@ -62,11 +69,6 @@ rm -r ~/.local/state/omarchy-plugin-pulse
 - Tags: security, system, quickshell
 - Kinds: service, bar widget, panel
 - Target: Omarchy Quattro on x86-64 Linux
-
-## Verification
-
-Executable provenance, retained build sources, checksums, and byte-for-byte reproduction
-instructions are grouped in [`audit/`](audit/README.md).
 
 ## License
 
